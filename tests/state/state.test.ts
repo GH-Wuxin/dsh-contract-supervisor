@@ -32,6 +32,7 @@ import {
   runAttempt,
   settleAttempt,
   spawnAttempt,
+  failSpawnAttempt,
   startActiveAttempt,
   startAttempt,
   SLICE_PHASES,
@@ -1042,6 +1043,171 @@ describe('S3 state machine', () => {
     runtime = reviewActiveSlice(runtime, 'APPROVE');
 
     expect(runtime.activeSlice!.phase).toBe('READY_TO_SEAL');
+  });
+
+  it('STATE-41: Authentic spawn failure branch', () => {
+    const slice = admittedSliceState();
+    const started = startAttempt(slice, 'attempt-1');
+    let attempt = spawnAttempt(started.attempt);
+
+    expect(attempt.phase).toBe('SPAWNING');
+
+    attempt = failSpawnAttempt(attempt);
+
+    expect(attempt.phase).toBe('SPAWN_FAILED');
+    expect(attempt.outcome).toBe('FAILED');
+    expect(attempt.attemptId).toBe('attempt-1');
+    expect(attempt.attemptNo).toBe(1);
+    expect(attempt.sliceHash).toBe(slice.sliceHash);
+    expect(attempt.phase).not.toBe('RUNNING');
+    expect(Object.isFrozen(attempt)).toBe(true);
+  });
+
+  it('STATE-42: Spawn failure only from SPAWNING', () => {
+    const slice = admittedSliceState();
+    const started = startAttempt(slice, 'attempt-1');
+    const created = started.attempt;
+    const spawning = spawnAttempt(created);
+    const running = runAttempt(spawning);
+    const settled = settleAttempt(running, 'SUCCESS');
+    const disposing = beginDisposeAttempt(settled);
+    const disposed = completeDisposeAttempt(disposing);
+    const spawnFailed = failSpawnAttempt(spawning);
+
+    const invalidAttempts = [
+      created,
+      running,
+      settled,
+      disposing,
+      disposed,
+      spawnFailed,
+    ];
+
+    for (const attempt of invalidAttempts) {
+      expect(() => failSpawnAttempt(attempt)).toThrowError(StateError);
+      try {
+        failSpawnAttempt(attempt);
+      } catch (error) {
+        expectStateError(error, STATE_ERROR_CODES.INVALID_STATE_TRANSITION);
+      }
+    }
+  });
+
+  it('STATE-43: Spawn failure is not disposed', () => {
+    const slice = admittedSliceState();
+    const started = startAttempt(slice, 'attempt-1');
+    const spawnFailed = failSpawnAttempt(spawnAttempt(started.attempt));
+
+    expect(() => beginDisposeAttempt(spawnFailed)).toThrowError(StateError);
+    try {
+      beginDisposeAttempt(spawnFailed);
+    } catch (error) {
+      expectStateError(error, STATE_ERROR_CODES.INVALID_STATE_TRANSITION);
+    }
+
+    expect(spawnFailed.phase).toBe('SPAWN_FAILED');
+  });
+
+  it('STATE-44: Finalize spawn failure', () => {
+    const slice = admittedSliceState();
+    const started = startAttempt(slice, 'attempt-1');
+    const spawnFailed = failSpawnAttempt(spawnAttempt(started.attempt));
+
+    const finalized = finalizeAttemptForSlice(started.slice, spawnFailed);
+
+    expect(finalized.phase).toBe('ATTEMPT_FAILED');
+    expect(finalized.phase).not.toBe('WORKER_STOPPED');
+    expect(finalized.phase).not.toBe('SCOPE_BLOCKED');
+
+    const contract = validContract();
+    const sliceInput = validSlice(contract);
+    let runtime = admitSlice(createSupervisorRuntimeState(), contract, sliceInput);
+    const startedRuntime = startActiveAttempt(runtime, 'attempt-1');
+    runtime = startedRuntime.runtime;
+    const runtimeFailed = failSpawnAttempt(spawnAttempt(startedRuntime.attempt));
+
+    const finalizedRuntime = finalizeActiveAttempt(runtime, runtimeFailed);
+    expect(finalizedRuntime.activeSlice!.phase).toBe('ATTEMPT_FAILED');
+  });
+
+  it('STATE-45: Retry after spawn failure', () => {
+    const slice = admittedSliceState();
+    const started = startAttempt(slice, 'attempt-1');
+    const spawnFailed = failSpawnAttempt(spawnAttempt(started.attempt));
+    const failedSlice = finalizeAttemptForSlice(started.slice, spawnFailed);
+
+    const retried = requestRetry(failedSlice);
+    expect(retried.phase).toBe('ADMITTED');
+
+    const second = startAttempt(retried, 'attempt-2');
+    expect(second.attempt.attemptId).toBe('attempt-2');
+    expect(second.attempt.attemptNo).toBe(2);
+    expect(second.attempt.sliceHash).toBe(slice.sliceHash);
+  });
+
+  it('STATE-46: maxAttempts still applies', () => {
+    const contract = validContract();
+    const sliceInput = FrozenSlice.create(
+      makeSlice({ contractHash: contract.contractHash, maxAttempts: 1 }),
+    );
+    const slice = admittedSliceState(contract, sliceInput);
+    const started = startAttempt(slice, 'attempt-1');
+    const spawnFailed = failSpawnAttempt(spawnAttempt(started.attempt));
+    const failedSlice = finalizeAttemptForSlice(started.slice, spawnFailed);
+
+    expect(() => requestRetry(failedSlice)).toThrowError(StateError);
+    try {
+      requestRetry(failedSlice);
+    } catch (error) {
+      expectStateError(error, STATE_ERROR_CODES.ATTEMPT_LIMIT_REACHED);
+    }
+  });
+
+  it('STATE-47: Forged SPAWN_FAILED rejected', () => {
+    const contract = validContract();
+    const sliceInput = validSlice(contract);
+    let runtime = admitSlice(createSupervisorRuntimeState(), contract, sliceInput);
+    const started = startActiveAttempt(runtime, 'attempt-1');
+    runtime = started.runtime;
+
+    const forged: AttemptState = {
+      phase: 'SPAWN_FAILED',
+      attemptId: 'attempt-1',
+      attemptNo: 1,
+      sliceHash: runtime.activeSlice!.sliceHash,
+      outcome: 'FAILED',
+    };
+
+    expect(() => finalizeActiveAttempt(runtime, forged)).toThrowError(StateError);
+    try {
+      finalizeActiveAttempt(runtime, forged);
+    } catch (error) {
+      expectStateError(error, STATE_ERROR_CODES.INVALID_STATE_TRANSITION);
+    }
+
+    const authenticSpawnFailed = failSpawnAttempt(spawnAttempt(started.attempt));
+    const spreadForged = {
+      ...authenticSpawnFailed,
+    } as AttemptState;
+
+    expect(() => finalizeActiveAttempt(runtime, spreadForged)).toThrowError(StateError);
+    try {
+      finalizeActiveAttempt(runtime, spreadForged);
+    } catch (error) {
+      expectStateError(error, STATE_ERROR_CODES.INVALID_STATE_TRANSITION);
+    }
+  });
+
+  it('STATE-48: Existing disposal path unchanged', () => {
+    const slice = admittedSliceState();
+    const { slice: running, attempt } = runAttemptToDisposed(
+      slice,
+      'attempt-1',
+      'SUCCESS',
+    );
+    const finalized = finalizeAttemptForSlice(running, attempt);
+
+    expect(finalized.phase).toBe('WORKER_STOPPED');
   });
 
 });

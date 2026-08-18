@@ -148,6 +148,24 @@ export function finalizeAttemptForSlice(
   ensureSlicePhase(slice, 'RUNNING', 'finalize an Attempt for a Slice');
   assertAttemptState(attempt);
 
+  if (attempt.phase === 'SPAWN_FAILED') {
+    if (attempt.outcome !== 'FAILED') {
+      throw new StateError(
+        STATE_ERROR_CODES.INVALID_STATE_TRANSITION,
+        `Attempt '${attempt.attemptId}' is SPAWN_FAILED but does not have outcome FAILED`,
+      );
+    }
+
+    if (attempt.sliceHash !== slice.sliceHash || attempt.attemptId !== slice.currentAttemptId) {
+      throw new StateError(
+        STATE_ERROR_CODES.ATTEMPT_SLICE_MISMATCH,
+        `Attempt '${attempt.attemptId}' does not match current attempt of Slice '${slice.sliceHash}'`,
+      );
+    }
+
+    return makeSliceState({ ...slice, phase: 'ATTEMPT_FAILED' });
+  }
+
   if (attempt.phase !== 'DISPOSED') {
     throw new StateError(
       STATE_ERROR_CODES.ATTEMPT_NOT_DISPOSED,

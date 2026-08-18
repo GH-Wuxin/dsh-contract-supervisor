@@ -56,6 +56,14 @@ export function spawnAttempt(attempt: AttemptState): AttemptState {
   return makeAttemptState({ ...attempt, phase: 'SPAWNING' });
 }
 
+export function failSpawnAttempt(attempt: AttemptState): AttemptState {
+  assertAttemptState(attempt);
+  if (attempt.phase !== 'SPAWNING') {
+    invalidTransition(`Cannot fail spawn attempt '${attempt.attemptId}' from phase ${attempt.phase}`);
+  }
+  return makeAttemptState({ ...attempt, phase: 'SPAWN_FAILED', outcome: 'FAILED' });
+}
+
 export function runAttempt(attempt: AttemptState): AttemptState {
   assertAttemptState(attempt);
   if (attempt.phase !== 'SPAWNING') {

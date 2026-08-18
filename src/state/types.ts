@@ -22,6 +22,7 @@ export type SlicePhase = (typeof SLICE_PHASES)[number];
 export const ATTEMPT_PHASES = [
   'CREATED',
   'SPAWNING',
+  'SPAWN_FAILED',
   'RUNNING',
   'SETTLED',
   'DISPOSING',

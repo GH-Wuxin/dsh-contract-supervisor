@@ -18,6 +18,7 @@ export type {
 export {
   createAttemptState,
   spawnAttempt,
+  failSpawnAttempt,
   runAttempt,
   settleAttempt,
   beginDisposeAttempt,
