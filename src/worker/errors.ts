@@ -1,0 +1,21 @@
+export const WORKER_ERROR_CODES = {
+  UNAUTHORIZED_TOOL: 'UNAUTHORIZED_TOOL',
+  WORKER_ALREADY_ACTIVE: 'WORKER_ALREADY_ACTIVE',
+  WORKER_SPAWN_FAILED: 'WORKER_SPAWN_FAILED',
+  WORKER_EXECUTION_FAILED: 'WORKER_EXECUTION_FAILED',
+  WORKER_DISPOSE_FAILED: 'WORKER_DISPOSE_FAILED',
+  WORKER_CONFIGURATION_INVALID: 'WORKER_CONFIGURATION_INVALID',
+} as const;
+
+export type WorkerErrorCode =
+  (typeof WORKER_ERROR_CODES)[keyof typeof WORKER_ERROR_CODES];
+
+export class WorkerError extends Error {
+  readonly code: WorkerErrorCode;
+
+  constructor(code: WorkerErrorCode, message: string) {
+    super(message);
+    this.name = 'WorkerError';
+    this.code = code;
+  }
+}
