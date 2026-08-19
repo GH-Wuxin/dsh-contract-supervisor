@@ -1,0 +1,10 @@
+# dsh-contract-supervisor bundle patch.
+#
+# This is the thinnest loadable DSH/Cordis integration layer for the sealed C5
+# Supervisor. It inserts exactly one row: the contract-supervisor plugin. The
+# plugin only provides the Supervisor-owned service seam on the Cordis context;
+# it does not spawn a worker or start arbitrary work on load.
+- insert:
+    - id: contract-supervisor
+      name: dsh-contract-supervisor
+      config: {}
