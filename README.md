@@ -132,16 +132,8 @@ npm run build
 The roadmap is aspirational; nothing beyond the current checkpoint is
 promised.
 
-## 9. License status
+## 9. License
 
-No license has been chosen for this repository yet, and none is implied.
-Until a license is selected, all rights are reserved.
-
-Neutral options for the owner to consider:
-
-- **MIT** — permissive, simple.
-- **Apache-2.0** — permissive with an explicit patent grant.
-- **GPL-3.0** — strong copyleft.
-
-This is a human decision; the repository owner must make it before broad
-public reuse is encouraged.
+This project is licensed under the **GNU General Public License version 3
+only** (SPDX: `GPL-3.0-only`). See the `LICENSE` file for the full license
+text.

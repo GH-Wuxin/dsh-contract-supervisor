@@ -1,7 +1,17 @@
 {
   "name": "dsh-contract-supervisor",
   "version": "0.0.0",
+  "description": "Contract-first supervisor for DeepSeek Harness with frozen authority boundaries and disposable agents.",
+  "license": "GPL-3.0-only",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GH-Wuxin/dsh-contract-supervisor.git"
+  },
+  "homepage": "https://github.com/GH-Wuxin/dsh-contract-supervisor#readme",
+  "bugs": {
+    "url": "https://github.com/GH-Wuxin/dsh-contract-supervisor/issues"
+  },
   "type": "module",
   "main": "./lib/integration/plugin.js",
   "types": "./lib/integration/plugin.d.ts",
