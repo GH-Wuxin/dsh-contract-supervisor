@@ -34,6 +34,7 @@ import { createSliceFsSessionRegistry } from '../fs/index.js';
 import type { SliceFsSessionRegistry } from '../fs/index.js';
 import { FrozenContract, FrozenSlice } from '../domain/index.js';
 import type { ContractInput, SliceInput } from '../domain/index.js';
+import { maybeRunContractSupervisorCmdline } from '../cli/cmdline.js';
 
 export interface ContractSupervisorService {
   readonly name: 'contractSupervisor';
@@ -59,7 +60,12 @@ export interface ContractSupervisorService {
 }
 
 export const name = 'contract-supervisor';
-export const inject: readonly string[] = [];
+// The plugin runs in its OWN loader/plugin fiber, while AgentRegistry is
+// provided by a SIBLING loader entry (dsh-base's `agent` row). `inject`
+// makes `ctx.agents` visible in this plugin fiber (Cordis resolves injected
+// services from the shared service store once the provider fiber is ACTIVE)
+// and gates this fiber's activation until the provider is available.
+export const inject: readonly string[] = ['agents'];
 export const Config = undefined;
 
 export function apply(ctx: any, _config?: {}): () => void {
@@ -86,7 +92,17 @@ export function apply(ctx: any, _config?: {}): () => void {
     createSliceFsSessionRegistry,
   });
 
-  return ctx.provide('contractSupervisor', service);
+  const provideDisposer = ctx.provide('contractSupervisor', service);
+
+  // S5.2 developer-only host cmdline seam. Inert when the launcher did not
+  // provide cmdlineArgs (no-arg boot / profile load smoke) or the first
+  // internal arg is not `contract-supervisor-run`. Uses the genuine rc.6
+  // provideCmdline/parseCmdline mechanism; host-side, not model-visible; no
+  // second Cordis loader/plugin row. When it does handle the cmdline, the
+  // subcommand action runs the host driver and requests exit via appExit.
+  maybeRunContractSupervisorCmdline(ctx as never);
+
+  return provideDisposer;
 }
 
 const plugin = Object.freeze({

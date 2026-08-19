@@ -24,6 +24,23 @@ import {
 
 const COMPLETED_TERMINAL: TurnEndReason = { kind: 'completed' };
 
+/**
+ * The S5.2 plugin declares `inject: ['agents']`: its activation is gated on
+ * the sibling `agents` provider, exactly as in the real DSH loader tree.
+ * Unit fixtures therefore represent that legitimate runtime dependency by
+ * providing an `agents` service on the shared context before loading the
+ * plugin. The fixtures that only exercise the service seam never call it.
+ */
+function provideStubAgents(ctx: Context): unknown {
+  const stubAgents = {
+    create: async () => {
+      throw new Error('stub agents: unit fixture does not create agents');
+    },
+  };
+  ctx.provide('agents', stubAgents);
+  return stubAgents;
+}
+
 async function waitFor(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (predicate()) {
@@ -37,6 +54,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 describe('S5.1 DSH plugin integration adapter', () => {
   it('INT-01 package exposes a valid loadable Cordis plugin entrypoint', async () => {
     const ctx = new Context();
+    provideStubAgents(ctx);
     const fiber = await ctx.plugin(plugin, {});
 
     const service = ctx.get('contractSupervisor');
@@ -73,13 +91,16 @@ describe('S5.1 DSH plugin integration adapter', () => {
 
   it('INT-03 plugin activation does not spawn a worker', async () => {
     const ctx = new Context();
+    const stubAgents = provideStubAgents(ctx);
     const fiber = await ctx.plugin(plugin, {});
 
     const service = ctx.get('contractSupervisor');
     expect(service).toBeDefined();
     // The plugin only provides the service seam. It must not create any Agent,
-    // Slice, filesystem session, or worker by itself.
-    expect(ctx.get('agents')).toBeUndefined();
+    // Slice, filesystem session, or worker by itself; the `agents` value on
+    // the context is still exactly the fixture-provided dependency, not
+    // something the plugin installed.
+    expect(ctx.get('agents')).toBe(stubAgents);
     expect(service.createDshWorkerPort).toBeTypeOf('function');
 
     await fiber.dispose();
@@ -136,6 +157,7 @@ describe('S5.1 DSH plugin integration adapter', () => {
       const config = createTestConfig(['slice_read', 'slice_write']);
 
       const ctx = new Context();
+      provideStubAgents(ctx);
       const fiber = await ctx.plugin(plugin, {});
       const service = ctx.get('contractSupervisor');
       const harness = createFakeDshHarness();
@@ -211,6 +233,7 @@ describe('S5.1 DSH plugin integration adapter', () => {
       const config = createTestConfig(['slice_read', 'slice_write']);
 
       const ctx = new Context();
+      provideStubAgents(ctx);
       const fiber = await ctx.plugin(plugin, {});
       const service = ctx.get('contractSupervisor');
       const harness = createFakeDshHarness();
@@ -278,6 +301,7 @@ describe('S5.1 DSH plugin integration adapter', () => {
       const config = createTestConfig(['slice_read', 'slice_write']);
 
       const ctx = new Context();
+      provideStubAgents(ctx);
       const fiber = await ctx.plugin(plugin, {});
       const service = ctx.get('contractSupervisor');
       const harness = createFakeDshHarness();
