@@ -72,7 +72,7 @@ describe('real DSH production adapter seam', () => {
     expect(followupIndex).toBeGreaterThan(restrictIndex);
     expect(followupIndex).toBeGreaterThan(guardIndex);
 
-    expect(run.workerId).toBe('child-1');
+    expect(run.workerId).toBe('child-session-1');
     expect(run.sessionId).toBe('child-session-1');
 
     harness.resolveChild(0);
@@ -175,7 +175,7 @@ describe('real DSH production adapter seam', () => {
       'presentAs:native',
       'restrict:{"allow":[]}',
       'guard',
-      'followup:child-1',
+      'followup:child-session-1',
     ]);
 
     harness.resolveChild(0);
@@ -310,7 +310,7 @@ describe('real DSH production adapter seam', () => {
 
     expect(harnessA.createdOptions).toHaveLength(1);
     expect(harnessB.createdOptions).toHaveLength(0);
-    expect(run.workerId).toBe('child-1');
+    expect(run.workerId).toBe('child-session-1');
 
     harnessA.resolveChild(0);
     await expect(run.result).resolves.toMatchObject({ outcome: 'SUCCESS' });

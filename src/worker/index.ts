@@ -1,6 +1,6 @@
 export { WORKER_ERROR_CODES, WorkerError } from './errors.js';
 export type { WorkerErrorCode } from './errors.js';
-export { assertValidWorkerConfig, freezeWorkerConfig, FORBIDDEN_WORKER_TOOLS } from './config.js';
+export { assertValidWorkerConfig, freezeWorkerConfig, FORBIDDEN_WORKER_TOOLS, SUPPORTED_WORKER_TOOLS } from './config.js';
 export { authorizeWorkerTool, createToolAuthorizer } from './authority.js';
 export {
   createWorkerLifecycleCoordinator,
@@ -35,6 +35,7 @@ export type {
   WorkerAttemptInput,
   WorkerAttemptResult,
   WorkerExecutionOutcome,
+  WorkerFsConfig,
   WorkerPort,
   WorkerResult,
   WorkerRun,

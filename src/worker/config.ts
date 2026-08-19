@@ -1,27 +1,23 @@
 import { WorkerError, WORKER_ERROR_CODES } from './errors.js';
 import type { FrozenWorkerConfig } from './types.js';
 import {
+  isUniqueSubsetOfSliceFsTools,
+  SLICE_FS_TOOL_NAMES,
+} from '../fs/toolNames.js';
+import {
   WORKER_MODEL,
   WORKER_PRESENTATION,
   WORKER_ROLE,
 } from './types.js';
 
 /**
- * Kept only for diagnostics/reporting. It is NOT the authority source for S4:
- * the only legal allowlist is the empty list.
+ * Kept only for diagnostics/reporting. C4A no longer treats the allowlist as
+ * deny-all; any name outside the exact audited S5 tool universe is invalid.
+ * This constant intentionally contains no independently maintained names.
  */
-export const FORBIDDEN_WORKER_TOOLS: readonly string[] = Object.freeze([
-  'bash',
-  'pwsh',
-  'shell',
-  'run_code',
-  'subagent',
-  'spawn',
-  'workflow',
-  'ralph',
-  'jobs',
-  'delegation',
-]);
+export const FORBIDDEN_WORKER_TOOLS: readonly string[] = Object.freeze([]);
+
+export const SUPPORTED_WORKER_TOOLS: readonly string[] = SLICE_FS_TOOL_NAMES;
 
 function invalid(message: string): WorkerError {
   return new WorkerError(WORKER_ERROR_CODES.WORKER_CONFIGURATION_INVALID, message);
@@ -66,12 +62,13 @@ export function assertValidWorkerConfig(config: FrozenWorkerConfig): void {
     throw invalid('Worker toolAllowlist must be an array');
   }
 
-  // S4 positive allow policy: the only legal allowlist is [].
-  // Unknown future tools are rejected by default because they are not in the
-  // exact frozen allowlist.
-  if (config.toolAllowlist.length !== 0) {
+  // C4A: FrozenWorkerConfig.toolAllowlist is a Supervisor-owned UPPER BOUND.
+  // It may be any duplicate-free subset of the exact four audited FS tools.
+  // No arbitrary string may become a worker tool.
+  if (!isUniqueSubsetOfSliceFsTools(config.toolAllowlist)) {
+    const rendered = config.toolAllowlist.map((tool) => String(tool)).join(', ');
     throw invalid(
-      `Worker toolAllowlist must be exactly [], received [${config.toolAllowlist.join(', ')}]`,
+      `Worker toolAllowlist must be a duplicate-free subset of [${SLICE_FS_TOOL_NAMES.join(', ')}], received [${rendered}]`,
     );
   }
 }

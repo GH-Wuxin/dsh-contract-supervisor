@@ -62,7 +62,13 @@ export interface FakeDshParent {
   };
   readonly ctx: {
     readonly agents: { readonly create: ReturnType<typeof vi.fn> };
+    readonly tools?: FakeDshToolRuntime;
   };
+}
+
+export interface FakeDshHarnessOptions {
+  /** When set, every underlying AgentHandle.dispose rejects with this error. */
+  readonly disposeError?: unknown;
 }
 
 export interface FakeDshHarness {
@@ -72,6 +78,7 @@ export interface FakeDshHarness {
   readonly presentAsCalls: ToolPresentationMode[];
   readonly restrictCalls: ToolRestriction[];
   readonly guardCalls: ToolGuard[];
+  readonly executionInputs: ToolExecutionInput[];
   readonly followupCalls: Array<{ childId: string; text: string }>;
   readonly disposeCounts: number[];
   readonly children: FakeDshChild[];
@@ -89,12 +96,18 @@ export interface FakeDshHarness {
   rejectChild(index: number, error?: unknown): void;
   setChildOutput(index: number, text: string): void;
   setChildTerminal(index: number, terminal: TurnEndReason): void;
-  registerChildTool(index: number, definition: ToolDefinition): () => void;
+    registerChildTool(index: number, definition: ToolDefinition): () => void;
   executeChildTool(
     index: number,
     name: string,
     args?: unknown,
   ): Promise<ToolExecutionResult>;
+  /** Register a tool on the actual rc.7 root ToolRuntime global layer. */
+  registerGlobalTool(definition: ToolDefinition): () => void;
+  /** Actual rc.7 ToolRuntime visible names for the parent Agent scope. */
+  parentVisibleToolNames(): string[];
+  /** Actual rc.7 ToolRuntime visible names for one child Agent scope. */
+  childVisibleToolNames(index: number): string[];
 }
 
 const COMPLETED: TurnEndReason = { kind: 'completed' };
@@ -112,11 +125,14 @@ function appendClosedTurn(
   }
 }
 
-export function createFakeDshHarness(): FakeDshHarness {
+export function createFakeDshHarness(
+  harnessOptions: FakeDshHarnessOptions = {},
+): FakeDshHarness {
   const createdOptions: CreateAgentOptions[] = [];
   const presentAsCalls: ToolPresentationMode[] = [];
   const restrictCalls: ToolRestriction[] = [];
   const guardCalls: ToolGuard[] = [];
+  const executionInputs: ToolExecutionInput[] = [];
   const followupCalls: Array<{ childId: string; text: string }> = [];
   const disposeCounts: number[] = [];
   const children: FakeDshChild[] = [];
@@ -130,13 +146,13 @@ export function createFakeDshHarness(): FakeDshHarness {
   // proof run through the real registry guard/restrict pipeline.
   const root = new Context();
   new SystemPrompt(root, {});
-  new ToolRuntime(root);
+  const toolRuntime = new ToolRuntime(root);
 
   const parent: FakeDshParent = {
     id: 'parent-1',
     options: { provider: 'deepseek-ai', model: 'Flash' },
     session: {
-      id: 'parent-session-1',
+      id: 'parent-1',
       header: { delegationDepth: 0 },
     },
     ctx: {
@@ -164,13 +180,16 @@ export function createFakeDshHarness(): FakeDshHarness {
             });
 
             const childAgent: FakeDshChildAgent = {
-              id: `child-${index + 1}`,
+              id: session.id,
               options: (options.agentOptions ?? {}) as Record<string, unknown>,
               session: { id: session.id },
             };
 
             // The exact scope key is the child agent object, matching
             // ReactLoopAgent's `createScope(loopCtx, this)` ownership seam.
+            // rc.7 does NOT link the child Agent's tool scope to the parent
+            // Agent's scoped registry: each Agent gets an independent scope
+            // minted from the loop/root context.
             const scopedCtx = createScope(root, childAgent).ctx.extend({
               agent: childAgent,
             });
@@ -197,6 +216,7 @@ export function createFakeDshHarness(): FakeDshHarness {
                 return actualTools.register(definition);
               }),
               execute: vi.fn((exec: ToolExecutionInput) => {
+                executionInputs.push(exec);
                 sequence.push(`tools.execute:${exec.name}`);
                 return actualTools.execute(exec);
               }),
@@ -262,6 +282,9 @@ export function createFakeDshHarness(): FakeDshHarness {
               dispose: vi.fn(async () => {
                 disposeCounts[index] += 1;
                 sequence.push(`dispose:${child.id}`);
+                if (harnessOptions.disposeError !== undefined) {
+                  throw harnessOptions.disposeError;
+                }
               }),
             };
           },
@@ -269,6 +292,39 @@ export function createFakeDshHarness(): FakeDshHarness {
       },
     },
   };
+
+  // Real parent scope: the fake parent is also a live Cordis scope, but it is
+  // deliberately NOT the parent of the child scope. This mirrors rc.7
+  // AgentLoop, where each Agent's tool scope is independent.
+  const parentScope = createScope(root, parent);
+  const parentCtx = parentScope.ctx.extend({ agent: parent });
+  const parentTools: FakeDshToolRuntime = {
+    presentAs: vi.fn((mode: ToolPresentationMode) => {
+      presentAsCalls.push(mode);
+      sequence.push(`presentAs:${mode}`);
+      return parentCtx.tools.presentAs(mode);
+    }),
+    register: vi.fn((definition: ToolDefinition) => {
+      sequence.push(`tools.register:${definition.name}`);
+      return parentCtx.tools.register(definition);
+    }),
+    restrict: vi.fn((filter: ToolRestriction) => {
+      restrictCalls.push(filter);
+      sequence.push(`restrict:${JSON.stringify(filter)}`);
+      return parentCtx.tools.restrict(filter);
+    }),
+    guard: vi.fn((guard: ToolGuard) => {
+      guardCalls.push(guard);
+      sequence.push('guard');
+      return parentCtx.tools.guard(guard);
+    }),
+    execute: vi.fn((exec: ToolExecutionInput) => {
+      executionInputs.push(exec);
+      sequence.push(`tools.execute:${exec.name}`);
+      return parentCtx.tools.execute(exec);
+    }),
+  };
+  (parent.ctx as { tools?: FakeDshToolRuntime }).tools = parentTools;
 
   const context: DshWorkerContext = {
     agent: parent as unknown as DshWorkerContext['agent'],
@@ -281,6 +337,7 @@ export function createFakeDshHarness(): FakeDshHarness {
     presentAsCalls,
     restrictCalls,
     guardCalls,
+    executionInputs,
     followupCalls,
     disposeCounts,
     children,
@@ -305,6 +362,12 @@ export function createFakeDshHarness(): FakeDshHarness {
     registerChildTool(index: number, definition: ToolDefinition) {
       return children[index].ctx.tools.register(definition);
     },
+    registerGlobalTool(definition: ToolDefinition) {
+      // Installs on the actual rc.7 root ToolRuntime global layer, so the tool
+      // is inherited by every child Agent scope (it is an inherited/global
+      // tool, not a child-local one).
+      return toolRuntime.register(definition);
+    },
     executeChildTool(index: number, name: string, args: unknown = {}) {
       const child = children[index];
       const input: ToolExecutionInput = {
@@ -315,6 +378,12 @@ export function createFakeDshHarness(): FakeDshHarness {
         signal: new AbortController().signal,
       };
       return child.ctx.tools.execute(input);
+    },
+    parentVisibleToolNames() {
+      return toolRuntime.schemas(parent).map((schema) => schema.name);
+    },
+    childVisibleToolNames(index: number) {
+      return toolRuntime.schemas(children[index].agent).map((schema) => schema.name);
     },
   };
 }
