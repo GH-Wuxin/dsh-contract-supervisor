@@ -1,5 +1,7 @@
 # DeepSeek Harness Contract-First Supervisor
 
+**[简体中文](README.zh-CN.md) | English**
+
 A DSH (DeepSeek Harness) plugin package that supervises a disposable-agent
 pipeline with frozen contract identities and deterministic, append-only state.
 
