@@ -1,113 +1,90 @@
 # DeepSeek Harness Contract-First Supervisor
 
-**[简体中文](README.zh-CN.md) | English**
+[简体中文](README.zh-CN.md) | English
 
-A DSH (DeepSeek Harness) plugin package that supervises a disposable-agent
-pipeline with frozen contract identities and deterministic, append-only state.
+**A contract-first supervisor for DeepSeek Harness.**
 
-**Status: Early Alpha — MVP completion in progress.**
-This is not production ready.
+Pro can propose. Flash can execute. Neither gets to decide its own authority.
 
-## 1. What this is
+Filesystem scope comes from frozen Contract / Slice state, while model and
+runtime policy are fixed by trusted host configuration. A deterministic
+Supervisor enforces both.
 
-`dsh-contract-supervisor` is an experimental DSH plugin (package name
-`dsh-contract-supervisor`, `"private": true` — intended for source
-publication, not npm publishing). It implements a small, auditable supervisor
-that runs a real DSH agent pipeline:
+**Status: Early Alpha — MVP in progress.**
 
-- a **Pro commander** produces an advisory instruction for one slice,
-- a **Flash worker** performs exactly one implementation attempt,
-- the worker can only touch a **Slice-scoped filesystem** through four
-  audited tools,
-- every step is checked against a **frozen Contract/Slice identity** and
-  recorded in **deterministic, append-only state**.
+## Why
 
-The point of the project is the boundary: authority comes from frozen
-contract artifacts and trusted state transitions, never from what a model
-writes.
+Many agent systems let the model propose what to do while also giving it broad
+or indirectly model-controlled execution authority. This project separates
+those two concerns.
 
-## 2. Status
-
-- Early Alpha — MVP completion is in progress, not yet declared complete.
-- The first paid real Pro → Flash dogfood run is still pending.
-- 252 deterministic tests pass at the sealed C5.2 checkpoint.
-- Later verifier/reviewer/seal/self-hosting work may still be unfinished.
-- Do not treat this as production software.
-
-## 3. Why Contract-First
-
-- Agents are disposable; verified state is durable.
-- A worker reporting `PASS` is not a checkpoint `PASS`.
-- Pro advisory text has authority delta zero.
-- Authority comes from the frozen Contract/Slice and the Supervisor state
-  machine, not from model output.
-- A fresh worker is spawned per Attempt.
-- Scope enforcement fails closed.
-
-## 4. Architecture
-
+```text
+Pro proposes
+    ↓ advisory only
+Supervisor owns authority
+    ↓ frozen policy
+Flash executes
+    ↓ Slice-scoped tools
 ```
+
+A model can suggest an action, but it cannot grant itself tools, expand its
+filesystem scope, change worker configuration, or create a new authority path.
+
+## How it works
+
+A run starts from a Human / RunSpec and follows one fixed path:
+
+```text
 Human / RunSpec
   → host CLI (contract-supervisor-run)
-  → fresh Pro commander (one turn, zero tools, advisory only)
-  → deterministic Supervisor (frozen identities + append-only ledger)
-  → fresh Flash worker (one Attempt per invocation)
-  → Slice-scoped tools (slice_read / slice_search / slice_write / slice_edit)
+  → Pro commander: one advisory instruction, zero tools
+  → deterministic Supervisor: admission check against frozen Contract / Slice
+  → Flash worker: exactly one implementation Attempt
+  → Slice-scoped tools: slice_read / slice_search / slice_write / slice_edit
 ```
 
-The commander's output is advisory text; the Supervisor derives authority
-from the frozen Contract/Slice identities and the audited tool surface. The
-worker is a real `@deepseek-ai` DSH agent configured in a single
-one-shot attempt with a hard-frozen `deepseek-ai/Flash` model and an
-allowlist limited to the audited filesystem tools.
+- **Pro** is a commander with one advisory turn and zero tools. Its output is
+  a suggestion, never a command.
+- **Supervisor** checks every step against the frozen Contract / Slice
+  identities and records each outcome in deterministic, append-only state.
+- **Flash** is a disposable worker with exactly one Attempt, Slice-scoped
+  tools, and a hard-frozen model selection.
 
-## 5. Current guarantees (at sealed checkpoint C5.2)
+Integration and orchestration tests run against the genuine DSH runtime with
+scripted LLM adapters. The first live DeepSeek API dogfood run is still
+pending.
 
-Everything below is covered by deterministic tests in `tests/`:
+## What works today
 
-- **Frozen Contract / Slice identities** with canonical hashing and deep
-  immutability (`CONTRACT-*`, `SLICE-*`, `HASH-*`, `IMMUTABLE-*`).
-- **Deterministic admission** — scope expansion and unknown verifier refs are
-  rejected (`AUTH-*`).
-- **Deterministic Supervisor state machine** — illegal transitions, attempt
-  ID reuse, retry with fresh attempts, dispose barriers (`STATE-*`).
-- **Append-only durable JSONL ledger** with tamper detection and torn-tail
-  recovery (`LEDGER-*`).
-- **Worker Lifecycle** — one run per worker, dispose exactly once, fresh
-  worker/session per Attempt, spawn failures never fake a run
-  (`WORKER-*`).
-- **Audited Slice-scoped filesystem access** — exactly four tools, authority
-  frozen at construction, violations invalidate the attempt (`FS-*`).
-- **Real DSH plugin integration** — genuine Cordis patch, profile load and
-  boot against the real `@deepseek-ai/dsh-app-boot` machinery, no worker
-  spawned on load (`INT-*` plus the `smoke:dsh` script).
-- **Host-side `contract-supervisor-run` CLI** driving the real DSH
-  orchestration in one boot (driver tier-1/2/3 tests).
-- **Real Pro commander orchestration** — zero-tool commander boundary, one
-  Flash Attempt per invocation, frozen `deepseek-ai/Pro` commander and
-  `deepseek-ai/Flash` worker (RunSpec cannot override the models).
-- **252 deterministic tests** at the sealed checkpoint.
+All of the following is covered by the test suite:
 
-`lib/` is generated from `src/` by `npm run build` and is committed as part
-of the sealed source distribution.
+- Frozen Contract / Slice identities — canonical hashing, deep immutability.
+- Deterministic admission — scope expansion and unknown verifier references
+  are rejected.
+- Deterministic Supervisor state machine — illegal transitions and attempt
+  ID reuse are rejected; retries always get a fresh Attempt.
+- Append-only durable JSONL ledger with tamper detection.
+- Disposable worker lifecycle — one run per worker, one dispose, no faked
+  runs.
+- Audited Slice-scoped filesystem access — four audited tools, fail-closed.
+- Genuine DSH plugin integration — real Cordis patch, profile load and boot,
+  host-side `contract-supervisor-run` CLI.
+- Pro → Supervisor → Flash orchestration with scripted LLM adapters.
+- 252 deterministic tests pass on the current public revision, plus Linux
+  GitHub Actions CI (typecheck, tests, smoke).
 
-## 6. Current limitations
+## Authority model
 
-- MVP is not yet declared complete.
-- The first paid real Pro → Flash dogfood run is still pending.
-- Not production ready; no security or reliability guarantees beyond what the
-  tests demonstrate.
-- Later verifier/reviewer/seal/self-hosting work may still be unfinished.
-- Installation is currently developer/internal: the package is loaded as a
-  DSH profile bundle plugin from a local checkout. A clean public
-  installation procedure is not yet established.
-- The `contract-supervisor-run` CLI requires a DSH profile/launcher context
-  and is a developer seam, not a model-facing tool.
+Four rules, no exceptions:
 
-## 7. Development / verification
+- Models do not define authority.
+- Pro has no tools; its output is advisory only.
+- Flash receives only Slice-derived tools and filesystem scope.
+- Invalid or uncertain state fails closed — no partial grants.
 
-Requirements: Node.js 24+, npm 11+. All dependencies are installed from the
-public npm registry (`npm ci` is reproducible via `package-lock.json`).
+## Development
+
+Requirements: Node.js 24+, npm 11+.
 
 ```sh
 npm ci
@@ -117,25 +94,29 @@ npm run smoke:dsh
 npm run build
 ```
 
-- `npm test` — the deterministic suite (252 tests at C5.2).
-- `npm run smoke:dsh` — real DSH profile/bundle load smoke. It creates a
-  temporary `$DSH_HOME` outside the repository, loads this package through the
-  genuine DSH profile machinery, and verifies the plugin activates and
-  provides its service seam. It requires no API keys and makes no paid API
-  calls.
+- `npm test` — deterministic suite (252 tests).
+- `npm run smoke:dsh` — loads this package through the genuine DSH profile
+  machinery with a temporary `$DSH_HOME` outside the repository; no API keys,
+  no paid calls.
 
-## 8. Project status / roadmap
+## Current limitations
 
-- Early Alpha — MVP completion in progress (current).
-- Declare the MVP complete at a future checkpoint.
-- First paid real Pro → Flash dogfood run.
-- Verifier / reviewer / seal machinery, then self-hosting.
+- Early Alpha — MVP is not yet declared complete.
+- The first live paid Pro → Flash dogfood run is still pending.
+- Installation is developer/internal only: the package loads as a DSH
+  profile bundle from a local checkout. A clean public install procedure is
+  not established yet.
+- Verifier / reviewer / seal / self-hosting work is unfinished.
 
-The roadmap is aspirational; nothing beyond the current checkpoint is
-promised.
+## Roadmap
 
-## 9. License
+1. Live Pro → Flash dogfood run.
+2. Finish the MVP.
+3. First self-hosted maintenance Slice.
+4. Declare MVP complete.
+5. Post-MVP verifier / reviewer / seal expansion.
 
-This project is licensed under the **GNU General Public License version 3
-only** (SPDX: `GPL-3.0-only`). See the `LICENSE` file for the full license
-text.
+## License
+
+GNU General Public License version 3 only (SPDX: `GPL-3.0-only`). See the
+`LICENSE` file for the full text.
